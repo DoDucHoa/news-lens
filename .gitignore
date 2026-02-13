@@ -83,3 +83,5 @@ htmlcov/
 *.tmp
 *.bak
 *.swp
+
+.github/
