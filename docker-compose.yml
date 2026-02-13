@@ -1,0 +1,152 @@
+version: '3.8'
+
+# ===================================
+# NEWS LENS - MULTI-SERVICE STACK
+# ===================================
+# This orchestrates all components:
+# - Airflow (ETL orchestration)
+# - ChromaDB (vector database)
+# - Backend (FastAPI RAG service)
+# - Frontend (Next.js UI)
+
+services:
+  # ----------------------------------
+  # CHROMADB - Vector Database
+  # ----------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: news-lens-chromadb
+    volumes:
+      - ./chromadb/data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=False
+    networks:
+      - news-lens-network
+    # NOTE: Port 8000 is NOT exposed to host (security best practice)
+    # Other services access via internal DNS: chromadb:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ----------------------------------
+  # AIRFLOW - ETL Orchestration
+  # ----------------------------------
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: news-lens-airflow-webserver
+    restart: always
+    depends_on:
+      - chromadb
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - GCS_PROJECT_ID=${GCS_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcs-key.json
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - NEWS_FEED_URLS=${NEWS_FEED_URLS}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/scripts:/opt/airflow/scripts
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/opt/airflow/gcs-key.json:ro
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "airflow db init &&
+               airflow users create --username ${_AIRFLOW_WWW_USER_USERNAME} --password ${_AIRFLOW_WWW_USER_PASSWORD} --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+               airflow webserver"
+    networks:
+      - news-lens-network
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: news-lens-airflow-scheduler
+    restart: always
+    depends_on:
+      - airflow-webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - GCS_PROJECT_ID=${GCS_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcs-key.json
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - NEWS_FEED_URLS=${NEWS_FEED_URLS}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/scripts:/opt/airflow/scripts
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/opt/airflow/gcs-key.json:ro
+    command: airflow scheduler
+    networks:
+      - news-lens-network
+
+  # ----------------------------------
+  # BACKEND - FastAPI RAG Service
+  # ----------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: news-lens-backend
+    restart: always
+    depends_on:
+      - chromadb
+    environment:
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_LLM_MODEL=${OPENAI_LLM_MODEL}
+      - RAG_TOP_K=${RAG_TOP_K}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "${BACKEND_PORT}:8000"
+    networks:
+      - news-lens-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ----------------------------------
+  # FRONTEND - Next.js UI
+  # ----------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: news-lens-frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT}
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    networks:
+      - news-lens-network
+
+networks:
+  news-lens-network:
+    driver: bridge
+
+volumes:
+  chromadb-data:
