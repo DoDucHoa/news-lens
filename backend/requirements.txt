@@ -3,19 +3,16 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
-
-# CORS middleware
 python-multipart==0.0.6
-
-# Vector database client
-chromadb==0.4.22
-
-# LLM & Embeddings
-openai==1.10.0
-langchain==0.1.6
-langchain-openai==0.0.5
-langchain-google-genai==0.0.6
 
 # Utilities
 python-dotenv==1.0.1
 tenacity==8.2.3
+requests==2.31.0
+
+# Vector database  
+chromadb>=0.6.0
+numpy<2.0
+
+# Local LLM with Ollama
+ollama==0.4.4
