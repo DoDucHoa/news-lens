@@ -4,12 +4,38 @@ version: '3.8'
 # NEWS LENS - MULTI-SERVICE STACK
 # ===================================
 # This orchestrates all components:
-# - Airflow (ETL orchestration)
+# - Ollama (local LLM with GPU support)
 # - ChromaDB (vector database)
 # - Backend (FastAPI RAG service)
 # - Frontend (Next.js UI)
 
 services:
+  # ----------------------------------
+  # OLLAMA - Local LLM with GPU
+  # ----------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: news-lens-ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - news-lens-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # ----------------------------------
   # CHROMADB - Vector Database
   # ----------------------------------
@@ -26,98 +52,38 @@ services:
     # NOTE: Port 8000 is NOT exposed to host (security best practice)
     # Other services access via internal DNS: chromadb:8000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8000/api/v2"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # ----------------------------------
-  # AIRFLOW - ETL Orchestration
-  # ----------------------------------
-  airflow-webserver:
-    build:
-      context: ./airflow
-      dockerfile: Dockerfile
-    container_name: news-lens-airflow-webserver
-    restart: always
-    depends_on:
-      - chromadb
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW__WEBSERVER__SECRET_KEY}
-      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
-      - GCS_PROJECT_ID=${GCS_PROJECT_ID}
-      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcs-key.json
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
-      - NEWS_FEED_URLS=${NEWS_FEED_URLS}
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/scripts:/opt/airflow/scripts
-      - ${GOOGLE_APPLICATION_CREDENTIALS}:/opt/airflow/gcs-key.json:ro
-    ports:
-      - "8080:8080"
-    command: >
-      bash -c "airflow db init &&
-               airflow users create --username ${_AIRFLOW_WWW_USER_USERNAME} --password ${_AIRFLOW_WWW_USER_PASSWORD} --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
-               airflow webserver"
-    networks:
-      - news-lens-network
-
-  airflow-scheduler:
-    build:
-      context: ./airflow
-      dockerfile: Dockerfile
-    container_name: news-lens-airflow-scheduler
-    restart: always
-    depends_on:
-      - airflow-webserver
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
-      - GCS_PROJECT_ID=${GCS_PROJECT_ID}
-      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcs-key.json
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
-      - NEWS_FEED_URLS=${NEWS_FEED_URLS}
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/scripts:/opt/airflow/scripts
-      - ${GOOGLE_APPLICATION_CREDENTIALS}:/opt/airflow/gcs-key.json:ro
-    command: airflow scheduler
-    networks:
-      - news-lens-network
 
   # ----------------------------------
   # BACKEND - FastAPI RAG Service
   # ----------------------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: news-lens-backend
     restart: always
     depends_on:
       - chromadb
+      - ollama
     environment:
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_LLM_MODEL=${OPENAI_LLM_MODEL}
-      - RAG_TOP_K=${RAG_TOP_K}
-      - CORS_ORIGINS=${CORS_ORIGINS}
+      # Ollama Configuration
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_LLM_MODEL=qwen3.5:4b
+      - OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+      # RAG Configuration
+      - RAG_TOP_K=${RAG_TOP_K:-5}
+      - RAG_TEMPERATURE=${RAG_TEMPERATURE:-0.7}
+      - RAG_MAX_TOKENS=${RAG_MAX_TOKENS:-500}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
     ports:
-      - "${BACKEND_PORT}:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     networks:
       - news-lens-network
     healthcheck:
@@ -149,4 +115,5 @@ networks:
     driver: bridge
 
 volumes:
+  ollama-data:
   chromadb-data:
