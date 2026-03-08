@@ -35,8 +35,10 @@ async def startup_event():
     """
     print("Starting News Lens API...")
     print(f"ChromaDB: {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
-    print(f"LLM Model: {settings.OPENAI_LLM_MODEL}")
-    print(f" RAG Top-K: {settings.RAG_TOP_K}")
+    print(f"Ollama: {settings.get_ollama_base_url()}")
+    print(f"LLM Model: {settings.OLLAMA_LLM_MODEL}")
+    print(f"Embedding Model: {settings.OLLAMA_EMBEDDING_MODEL}")
+    print(f"RAG Top-K: {settings.RAG_TOP_K}")
 
 
 @app.on_event("shutdown")

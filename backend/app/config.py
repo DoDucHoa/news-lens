@@ -2,7 +2,8 @@
 Application Configuration
 """
 from pydantic_settings import BaseSettings
-from typing import List
+from pydantic import field_validator
+from typing import List, Union
 
 
 class Settings(BaseSettings):
@@ -14,14 +15,11 @@ class Settings(BaseSettings):
     CHROMA_PORT: int = 8000
     CHROMA_COLLECTION_NAME: str = "news_articles"
     
-    # OpenAI Configuration
-    OPENAI_API_KEY: str
-    OPENAI_LLM_MODEL: str = "gpt-4o-mini"
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    
-    # Google Gemini Configuration (optional)
-    GOOGLE_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    # Ollama Configuration (Local LLM with GPU)
+    OLLAMA_HOST: str = "ollama"
+    OLLAMA_PORT: int = 11434
+    OLLAMA_LLM_MODEL: str = "qwen3.5:4b"
+    OLLAMA_EMBEDDING_MODEL: str = "mxbai-embed-large"
     
     # RAG Configuration
     RAG_TOP_K: int = 5
@@ -29,7 +27,16 @@ class Settings(BaseSettings):
     RAG_MAX_TOKENS: int = 500
     
     # CORS Configuration
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
+    
+    @field_validator('CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from comma-separated string or list"""
+        if isinstance(v, str):
+            # Split by comma and strip whitespace
+            return [origin.strip() for origin in v.split(',') if origin.strip()]
+        return v
     
     # API Configuration
     API_TITLE: str = "News Lens API"
@@ -38,6 +45,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+    
+    def get_ollama_base_url(self) -> str:
+        """Get Ollama base URL"""
+        return f"http://{self.OLLAMA_HOST}:{self.OLLAMA_PORT}"
 
 
 # Global settings instance

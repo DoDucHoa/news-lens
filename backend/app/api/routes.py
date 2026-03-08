@@ -21,11 +21,14 @@ chroma_service = ChromaDBService(
 
 rag_service = RAGService(
     chroma_service=chroma_service,
-    openai_api_key=settings.OPENAI_API_KEY,
-    llm_model=settings.OPENAI_LLM_MODEL,
-    embedding_model=settings.OPENAI_EMBEDDING_MODEL,
-    top_k=settings.RAG_TOP_K
+    ollama_host=settings.get_ollama_base_url(),
+    llm_model=settings.OLLAMA_LLM_MODEL,
+    embedding_model=settings.OLLAMA_EMBEDDING_MODEL,
+    top_k=settings.RAG_TOP_K,
+    temperature=settings.RAG_TEMPERATURE,
+    max_tokens=settings.RAG_MAX_TOKENS
 )
+
 
 
 @router.get("/", tags=["Root"])
@@ -133,6 +136,8 @@ async def test_endpoint() -> Dict[str, Any]:
         "chroma_host": settings.CHROMA_HOST,
         "chroma_port": settings.CHROMA_PORT,
         "collection_name": settings.CHROMA_COLLECTION_NAME,
-        "llm_model": settings.OPENAI_LLM_MODEL,
+        "model_provider": settings.MODEL_PROVIDER,
+        "llm_model": settings.get_llm_model(),
+        "embedding_model": settings.get_embedding_model(),
         "top_k": settings.RAG_TOP_K
     }
