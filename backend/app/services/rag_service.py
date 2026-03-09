@@ -117,6 +117,12 @@ Question: {question}
 
 Answer:"""
         
+        # Debug logging
+        print(f"DEBUG: System prompt length: {len(system_prompt)}")
+        print(f"DEBUG: User prompt length: {len(user_prompt)}")
+        print(f"DEBUG: Context length: {len(context)}")
+        print(f"DEBUG: First 500 chars of user_prompt: {user_prompt[:500]}")
+        
         try:
             response = self.client.chat(
                 model=self.llm_model,
@@ -133,12 +139,36 @@ Answer:"""
                 options={
                     'temperature': self.temperature,
                     'num_predict': self.max_tokens,
-                }
+                },
+                stream=False  # Explicitly disable streaming
             )
             
-            return response['message']['content'].strip()
+            # Debug logging
+            print(f"DEBUG: Ollama response type: {type(response)}")
+            print(f"DEBUG: Ollama response: {response}")
+            
+            # Handle both dict and object responses
+            if hasattr(response, 'message'):
+                content = response.message.content if response.message.content else ""
+                answer = content.strip()
+            elif isinstance(response, dict):
+                content = response.get('message', {}).get('content', '')
+                answer = content.strip()
+            else:
+                raise ValueError(f"Unexpected response type: {type(response)}")
+            
+            # If answer is empty, it might be a streaming issue - check if we need to collect chunks
+            if not answer and hasattr(response, 'done') and response.done:
+                print(f"WARNING: Empty answer despite done=True. Done reason: {response.done_reason if hasattr(response, 'done_reason') else 'unknown'}")
+            
+            print(f"DEBUG: Generated answer length: {len(answer)}")
+            print(f"DEBUG: Generated answer: {answer[:200] if len(answer) > 200 else answer}")
+            return answer
             
         except Exception as e:
+            print(f"ERROR in answer generation: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise Exception(f"Answer generation failed: {str(e)}")
     
     def query(self, question: str, top_k: int = None) -> Dict[str, Any]:
