@@ -3,11 +3,11 @@ version: '3.8'
 # ===================================
 # NEWS LENS - MULTI-SERVICE STACK
 # ===================================
-# This orchestrates all components:
+# This orchestrates core components:
 # - Ollama (local LLM with GPU support)
 # - ChromaDB (vector database)
 # - Backend (FastAPI RAG service)
-# - Frontend (Next.js UI)
+# Note: Frontend commented out until Dockerfile is created
 
 services:
   # ----------------------------------
@@ -93,22 +93,22 @@ services:
       retries: 3
 
   # ----------------------------------
-  # FRONTEND - Next.js UI
+  # FRONTEND - Next.js UI (Commented - No Dockerfile yet)
   # ----------------------------------
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: news-lens-frontend
-    restart: always
-    depends_on:
-      - backend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT}
-    ports:
-      - "${FRONTEND_PORT}:3000"
-    networks:
-      - news-lens-network
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: news-lens-frontend
+  #   restart: always
+  #   depends_on:
+  #     - backend
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT}
+  #   ports:
+  #     - "${FRONTEND_PORT}:3000"
+  #   networks:
+  #     - news-lens-network
 
 networks:
   news-lens-network:
