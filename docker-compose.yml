@@ -43,7 +43,7 @@ services:
     image: chromadb/chroma:latest
     container_name: news-lens-chromadb
     volumes:
-      - ./chromadb/data:/chroma/chroma
+      - ./chromadb/data:/data
     environment:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=False
@@ -80,7 +80,7 @@ services:
       # RAG Configuration
       - RAG_TOP_K=${RAG_TOP_K:-5}
       - RAG_TEMPERATURE=${RAG_TEMPERATURE:-0.7}
-      - RAG_MAX_TOKENS=${RAG_MAX_TOKENS:-500}
+      - RAG_MAX_TOKENS=${RAG_MAX_TOKENS:-2000}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
     ports:
       - "${BACKEND_PORT:-8001}:8000"
@@ -110,6 +110,123 @@ services:
   #   networks:
   #     - news-lens-network
 
+  # ----------------------------------
+  # AIRFLOW POSTGRES - Metadata Database
+  # ----------------------------------
+  airflow-postgres:
+    image: postgres:15
+    container_name: news-lens-airflow-postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    networks:
+      - news-lens-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------
+  # AIRFLOW WEBSERVER - Web UI
+  # ----------------------------------
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: news-lens-airflow-webserver
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true &&
+               airflow webserver"
+    depends_on:
+      - airflow-postgres
+      - ollama
+      - chromadb
+    environment:
+      # Airflow Core
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY:-zHqwkeUg_nHNTKyzDE44iEMB6cNhwbyon4-cv8AESH4=}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_SECRET_KEY:-secret}
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Europe/Berlin
+      # GCS Configuration
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcs-service-account.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-newslens-data-lake}
+      # Ollama Configuration
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-mxbai-embed-large}
+      # ChromaDB Configuration
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - CHROMADB_COLLECTION=${CHROMADB_COLLECTION:-news_articles}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/scripts:/opt/airflow/scripts
+      - ./secrets/gcs-service-account.json:/secrets/gcs-service-account.json:ro
+      - airflow-logs:/opt/airflow/logs
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT:-8080}:8080"
+    networks:
+      - news-lens-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ----------------------------------
+  # AIRFLOW SCHEDULER - Task Scheduler
+  # ----------------------------------
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: news-lens-airflow-scheduler
+    command: airflow scheduler
+    depends_on:
+      - airflow-postgres
+      - ollama
+      - chromadb
+    environment:
+      # Airflow Core
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY:-zHqwkeUg_nHNTKyzDE44iEMB6cNhwbyon4-cv8AESH4=}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Europe/Berlin
+      # GCS Configuration
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcs-service-account.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME:-newslens-data-lake}
+      # Ollama Configuration
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-mxbai-embed-large}
+      # ChromaDB Configuration
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - CHROMADB_COLLECTION=${CHROMADB_COLLECTION:-news_articles}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/scripts:/opt/airflow/scripts
+      - ./secrets/gcs-service-account.json:/secrets/gcs-service-account.json:ro
+      - airflow-logs:/opt/airflow/logs
+    networks:
+      - news-lens-network
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $(hostname)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
 networks:
   news-lens-network:
     driver: bridge
@@ -117,3 +234,5 @@ networks:
 volumes:
   ollama-data:
   chromadb-data:
+  airflow-postgres-data:
+  airflow-logs:

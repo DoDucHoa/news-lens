@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # RAG Configuration
     RAG_TOP_K: int = 5
     RAG_TEMPERATURE: float = 0.7
-    RAG_MAX_TOKENS: int = 500
+    RAG_MAX_TOKENS: int = 2000
     
     # CORS Configuration
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
