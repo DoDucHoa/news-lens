@@ -31,6 +31,7 @@ env/
 *.env
 
 # GCS Service Account Keys
+secrets/
 *.json
 !package.json
 !package-lock.json
@@ -85,3 +86,4 @@ htmlcov/
 *.swp
 
 .github/
+docs/
