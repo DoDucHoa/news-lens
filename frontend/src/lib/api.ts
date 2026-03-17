@@ -223,6 +223,13 @@ async function requestJson<T>(
       });
     }
 
+    if (error instanceof TypeError) {
+      throw new ApiClientError({
+        message: "Network/CORS error while contacting backend",
+        kind: "network",
+      });
+    }
+
     throw new ApiClientError({
       message: error instanceof Error ? error.message : "Unknown network error",
       kind: "network",
@@ -248,6 +255,110 @@ function isSourceItem(candidate: unknown): candidate is SourceItem {
   );
 }
 
+function firstNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeSource(candidate: unknown): SourceItem | null {
+  if (typeof candidate === "string" && candidate.trim().length > 0) {
+    return {
+      url: candidate,
+      title: "",
+      date: "",
+      snippet: "",
+      score: 0,
+      source_name: "",
+    };
+  }
+
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const record = candidate as Record<string, unknown>;
+  const urlValue =
+    (typeof record.url === "string" && record.url) ||
+    (typeof record.link === "string" && record.link) ||
+    (typeof record.href === "string" && record.href) ||
+    "";
+
+  if (!urlValue) {
+    return null;
+  }
+
+  const score =
+    typeof record.score === "number"
+      ? record.score
+      : typeof record.relevance === "number"
+        ? record.relevance
+        : 0;
+
+  return {
+    url: urlValue,
+    title: typeof record.title === "string" ? record.title : "",
+    date: typeof record.date === "string" ? record.date : typeof record.published_at === "string" ? record.published_at : "",
+    snippet: typeof record.snippet === "string" ? record.snippet : typeof record.summary === "string" ? record.summary : "",
+    score,
+    source_name: typeof record.source_name === "string" ? record.source_name : typeof record.source === "string" ? record.source : "",
+  };
+}
+
+function normalizeSources(raw: unknown): SourceItem[] {
+  if (!raw) {
+    return [];
+  }
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => normalizeSource(item))
+      .filter((item): item is SourceItem => item !== null);
+  }
+
+  if (typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    const nested = Array.isArray(record.items)
+      ? record.items
+      : Array.isArray(record.sources)
+        ? record.sources
+        : Array.isArray(record.documents)
+          ? record.documents
+          : null;
+
+    if (nested) {
+      return nested
+        .map((item) => normalizeSource(item))
+        .filter((item): item is SourceItem => item !== null);
+    }
+  }
+
+  return [];
+}
+
 function parseQueryPayload(payload: unknown): ParsedQueryPayload {
   if (!payload || typeof payload !== "object") {
     return {
@@ -258,30 +369,67 @@ function parseQueryPayload(payload: unknown): ParsedQueryPayload {
   }
 
   const record = payload as PartialQueryResponse;
-  const answer = record.answer;
-  const sources = record.sources;
-  const queryTime = record.query_time_ms;
+  const recordLike = payload as Record<string, unknown>;
 
-  const answerValid = typeof answer === "string";
-  const sourcesValid = Array.isArray(sources) && sources.every((item) => isSourceItem(item));
-  const queryTimeValid = typeof queryTime === "number";
+  const normalizedAnswer = firstString(recordLike, [
+    "answer",
+    "response",
+    "result",
+    "generated_answer",
+    "text",
+  ]);
+
+  const rawSources =
+    recordLike.sources ??
+    recordLike.source_items ??
+    recordLike.references ??
+    recordLike.docs ??
+    recordLike.documents;
+
+  const normalizedSources = normalizeSources(rawSources);
+  const normalizedQueryTime = firstNumber(recordLike, ["query_time_ms", "latency_ms", "queryTimeMs"]);
+
+  const answerValid = typeof normalizedAnswer === "string";
+  const sourcesValid = Array.isArray(normalizedSources) && normalizedSources.every((item) => isSourceItem(item));
+  const queryTimeValid = typeof normalizedQueryTime === "number";
 
   if (answerValid && sourcesValid && queryTimeValid) {
     return {
       full: {
-        answer,
-        sources,
-        query_time_ms: queryTime,
+        answer: normalizedAnswer,
+        sources: normalizedSources,
+        query_time_ms: normalizedQueryTime,
       },
-      partial: record,
+      partial: {
+        ...record,
+        answer: normalizedAnswer,
+        sources: normalizedSources,
+        query_time_ms: normalizedQueryTime,
+      },
     };
   }
 
-  const warning = "Response schema drift detected; rendering with partial data.";
+  const missing: string[] = [];
+  if (!answerValid) {
+    missing.push("answer");
+  }
+  if (!sourcesValid || normalizedSources.length === 0) {
+    missing.push("sources");
+  }
+  if (!queryTimeValid) {
+    missing.push("query_time_ms");
+  }
+
+  const warning = `Response schema drift detected; rendering partial data. Missing: ${missing.join(", ")}.`;
 
   return {
     full: null,
-    partial: record,
+    partial: {
+      ...record,
+      answer: normalizedAnswer,
+      sources: normalizedSources,
+      query_time_ms: normalizedQueryTime,
+    },
     warning,
   };
 }
