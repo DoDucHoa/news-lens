@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ===================================
 # NEWS LENS - MULTI-SERVICE STACK
 # ===================================
@@ -7,7 +5,6 @@ version: '3.8'
 # - Ollama (local LLM with GPU support)
 # - ChromaDB (vector database)
 # - Backend (FastAPI RAG service)
-# Note: Frontend commented out until Dockerfile is created
 
 services:
   # ----------------------------------
@@ -93,22 +90,34 @@ services:
       retries: 3
 
   # ----------------------------------
-  # FRONTEND - Next.js UI (Commented - No Dockerfile yet)
+  # FRONTEND - Next.js UI (Dev Mode)
   # ----------------------------------
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: news-lens-frontend
-  #   restart: always
-  #   depends_on:
-  #     - backend
-  #   environment:
-  #     - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT}
-  #   ports:
-  #     - "${FRONTEND_PORT}:3000"
-  #   networks:
-  #     - news-lens-network
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: news-lens-frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      # Hybrid API strategy: browser on localhost uses direct URL, otherwise proxy path.
+      - NEXT_PUBLIC_API_MODE=hybrid
+      - NEXT_PUBLIC_API_DIRECT_URL=http://localhost:${BACKEND_PORT:-8001}
+      - NEXT_PUBLIC_API_PROXY_PATH=/api
+      # Internal URL fallback for any server-side requests.
+      - INTERNAL_API_URL=http://backend:8000
+      # Improves file watching reliability on mounted volumes (Windows/macOS).
+      - CHOKIDAR_USEPOLLING=true
+    command: npm run dev -- --hostname 0.0.0.0 --port 3000
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+    ports:
+      - "3001:3000"
+    networks:
+      - news-lens-network
 
   # ----------------------------------
   # AIRFLOW POSTGRES - Metadata Database
@@ -236,3 +245,5 @@ volumes:
   chromadb-data:
   airflow-postgres-data:
   airflow-logs:
+  frontend-node-modules:
+  frontend-next:
