@@ -9,8 +9,8 @@ interface SourcesListProps {
 
 export function SourcesList({ sources, isLoading }: SourcesListProps) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 text-lg font-semibold text-zinc-900">Sources</h2>
+    <section className="news-card fade-up p-5 lg:p-6">
+      <h2 className="section-title mb-3">Sources</h2>
 
       {isLoading ? (
         <div className="space-y-2" aria-live="polite" aria-busy="true">
@@ -27,12 +27,12 @@ export function SourcesList({ sources, isLoading }: SourcesListProps) {
       {!isLoading && sources.length > 0 ? (
         <ul className="space-y-2 text-sm">
           {sources.map((source, index) => (
-            <li key={`${source.url}-${index}`} className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+            <li key={`${source.url}-${index}`} className="rounded-md border border-zinc-200 bg-zinc-50/80 px-3 py-2">
               <a
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="break-all text-zinc-800 underline decoration-zinc-400 underline-offset-2 hover:text-zinc-950"
+                className="break-words text-zinc-800 underline decoration-zinc-400 underline-offset-2 hover:text-zinc-950"
               >
                 {source.url}
               </a>
