@@ -37,7 +37,7 @@ function label(status: ServiceStatus): string {
 
 export function StatusBar({ backend, ollama, isRefreshing, lastCheckedAt }: StatusBarProps) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+    <section className="news-card fade-up px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-600">
           <span className="rounded-full border px-2 py-1">System status</span>
