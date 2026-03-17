@@ -4,6 +4,7 @@ RAG Service
 Handles Retrieval-Augmented Generation using ChromaDB and Ollama.
 """
 from typing import List, Dict, Any
+import time
 import ollama
 from app.services.chromadb_service import ChromaDBService
 from app.models.schemas import SourceItem
@@ -65,6 +66,26 @@ class RAGService:
             print(f"⚠️  Warning: Could not verify Ollama models: {str(e)}")
         
         print(f"✓ RAG Service initialized with Ollama at {ollama_host}")
+
+    def _build_fallback_answer(self, question: str, sources: List[SourceItem]) -> str:
+        """
+        Build a deterministic fallback answer when LLM generation fails.
+        """
+        if not sources:
+            return "I could not generate an answer right now. Please try again in a moment."
+
+        lines = [
+            "I could not generate a full answer from the LLM right now, but these relevant sources were found:",
+        ]
+
+        for idx, source in enumerate(sources[:3], start=1):
+            title = source.title if source.title else source.url
+            lines.append(f"{idx}. {title} ({source.source_name})")
+
+        lines.append(f"Question received: {question}")
+        lines.append("Please retry once; the model may have timed out or returned an empty output.")
+
+        return "\n".join(lines)
     
     def _get_embedding(self, text: str) -> List[float]:
         """
@@ -76,23 +97,31 @@ class RAGService:
         Returns:
             Embedding vector
         """
-        try:
-            response = self.client.embed(
-                model=self.embedding_model,
-                input=text
-            )
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = self.client.embed(
+                    model=self.embedding_model,
+                    input=text
+                )
             
-            # Ollama returns embeddings in different formats depending on version
-            # Handle both single embedding and batch embeddings
-            if 'embeddings' in response:
-                return response['embeddings'][0] if isinstance(response['embeddings'][0], list) else response['embeddings']
-            elif 'embedding' in response:
-                return response['embedding']
-            else:
+                # Ollama returns embeddings in different formats depending on version
+                # Handle both single embedding and batch embeddings
+                if 'embeddings' in response:
+                    return response['embeddings'][0] if isinstance(response['embeddings'][0], list) else response['embeddings']
+                if 'embedding' in response:
+                    return response['embedding']
+
                 raise ValueError(f"Unexpected response format from Ollama: {response.keys()}")
-                
-        except Exception as e:
-            raise Exception(f"Embedding generation failed: {str(e)}")
+            except Exception as e:
+                last_error = e
+                if attempt < 3:
+                    print(f"WARNING: Embedding attempt {attempt}/3 failed, retrying: {str(e)}")
+                    time.sleep(1.0 * attempt)
+                else:
+                    break
+
+        raise Exception(f"Embedding generation failed after retries: {str(last_error)}")
     
     def _generate_answer(self, question: str, context: str) -> str:
         """
@@ -123,53 +152,65 @@ Answer:"""
         print(f"DEBUG: Context length: {len(context)}")
         print(f"DEBUG: First 500 chars of user_prompt: {user_prompt[:500]}")
         
-        try:
-            response = self.client.chat(
-                model=self.llm_model,
-                messages=[
-                    {
-                        'role': 'system',
-                        'content': system_prompt
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = self.client.chat(
+                    model=self.llm_model,
+                    messages=[
+                        {
+                            'role': 'system',
+                            'content': system_prompt
+                        },
+                        {
+                            'role': 'user',
+                            'content': user_prompt
+                        }
+                    ],
+                    options={
+                        'temperature': self.temperature,
+                        'num_predict': self.max_tokens,
                     },
-                    {
-                        'role': 'user',
-                        'content': user_prompt
-                    }
-                ],
-                options={
-                    'temperature': self.temperature,
-                    'num_predict': self.max_tokens,
-                },
-                stream=False  # Explicitly disable streaming
-            )
+                    stream=False  # Explicitly disable streaming
+                )
             
-            # Debug logging
-            print(f"DEBUG: Ollama response type: {type(response)}")
-            print(f"DEBUG: Ollama response: {response}")
+                # Debug logging
+                print(f"DEBUG: Ollama response type: {type(response)}")
+                print(f"DEBUG: Ollama response: {response}")
             
-            # Handle both dict and object responses
-            if hasattr(response, 'message'):
-                content = response.message.content if response.message.content else ""
-                answer = content.strip()
-            elif isinstance(response, dict):
-                content = response.get('message', {}).get('content', '')
-                answer = content.strip()
-            else:
-                raise ValueError(f"Unexpected response type: {type(response)}")
+                # Handle both dict and object responses
+                if hasattr(response, 'message'):
+                    content = response.message.content if response.message.content else ""
+                    answer = content.strip()
+                elif isinstance(response, dict):
+                    content = response.get('message', {}).get('content', '')
+                    answer = content.strip()
+                else:
+                    raise ValueError(f"Unexpected response type: {type(response)}")
             
-            # If answer is empty, it might be a streaming issue - check if we need to collect chunks
-            if not answer and hasattr(response, 'done') and response.done:
-                print(f"WARNING: Empty answer despite done=True. Done reason: {response.done_reason if hasattr(response, 'done_reason') else 'unknown'}")
+                # If answer is empty, it might be a streaming issue - check if we need to collect chunks
+                if not answer and hasattr(response, 'done') and response.done:
+                    print(f"WARNING: Empty answer despite done=True. Done reason: {response.done_reason if hasattr(response, 'done_reason') else 'unknown'}")
+
+                if not answer:
+                    raise ValueError("LLM returned empty content")
             
-            print(f"DEBUG: Generated answer length: {len(answer)}")
-            print(f"DEBUG: Generated answer: {answer[:200] if len(answer) > 200 else answer}")
-            return answer
-            
-        except Exception as e:
-            print(f"ERROR in answer generation: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise Exception(f"Answer generation failed: {str(e)}")
+                print(f"DEBUG: Generated answer length: {len(answer)}")
+                print(f"DEBUG: Generated answer: {answer[:200] if len(answer) > 200 else answer}")
+                return answer
+            except Exception as e:
+                last_error = e
+                if attempt < 3:
+                    print(f"WARNING: LLM generation attempt {attempt}/3 failed, retrying: {str(e)}")
+                    time.sleep(1.5 * attempt)
+                    continue
+
+                print(f"ERROR in answer generation: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                break
+
+        raise Exception(f"Answer generation failed after retries: {str(last_error)}")
     
     def query(self, question: str, top_k: int = None) -> Dict[str, Any]:
         """
@@ -211,7 +252,8 @@ Answer:"""
         
         for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
             # Add to context
-            context_parts.append(f"[Source {i+1}] {doc}")
+            context_doc = doc[:1200] + "..." if len(doc) > 1200 else doc
+            context_parts.append(f"[Source {i+1}] {context_doc}")
             
             # Convert distance to score (lower distance = higher relevance)
             # Using formula: score = 1 / (1 + distance)
@@ -234,7 +276,14 @@ Answer:"""
         context = "\n\n".join(context_parts)
         
         # Step 5: Generate answer using Ollama LLM
-        answer = self._generate_answer(question, context)
+        try:
+            answer = self._generate_answer(question, context)
+        except Exception as e:
+            print(f"WARNING: Falling back after generation failure: {str(e)}")
+            answer = self._build_fallback_answer(question, sources)
+
+        if not answer or not answer.strip():
+            answer = self._build_fallback_answer(question, sources)
         
         return {
             'answer': answer,

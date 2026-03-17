@@ -9,6 +9,7 @@ import {
   type SourceItem,
 } from "@/lib/types";
 import { emitTelemetry } from "@/lib/telemetry";
+import { writeSubmitDebugLog } from "@/lib/submit-debug-log";
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_RETRY_COUNT = 1;
@@ -172,9 +173,22 @@ async function requestJson<T>(
 ): Promise<T> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const { signal, cleanup } = buildAbortSignal(timeoutMs, options.signal);
+  const url = toUrl(path);
+
+  writeSubmitDebugLog({
+    event: "api_request_start",
+    data: {
+      path,
+      url,
+      method: init.method ?? "GET",
+      timeoutMs,
+      retryCount,
+      mode: process.env.NEXT_PUBLIC_API_MODE ?? "hybrid",
+    },
+  });
 
   try {
-    const response = await fetch(toUrl(path), {
+    const response = await fetch(url, {
       ...init,
       signal,
       headers: {
@@ -186,6 +200,17 @@ async function requestJson<T>(
 
     if (!response.ok) {
       const payload = parseApiEnvelope(await safeParseJson(response));
+      writeSubmitDebugLog({
+        event: "api_request_http_error",
+        level: "warn",
+        data: {
+          path,
+          url,
+          status: response.status,
+          payload,
+        },
+      });
+
       throw new ApiClientError({
         message: extractErrorMessage(response.status, payload),
         kind: classifyHttpError(response.status),
@@ -196,6 +221,17 @@ async function requestJson<T>(
 
     const json = (await safeParseJson(response)) as T | null;
     if (json === null) {
+      writeSubmitDebugLog({
+        event: "api_response_parse_error",
+        level: "warn",
+        data: {
+          path,
+          url,
+          status: response.status,
+          contentType: response.headers.get("content-type") ?? "",
+        },
+      });
+
       throw new ApiClientError({
         message: "Response is not valid JSON",
         kind: "parse",
@@ -203,9 +239,30 @@ async function requestJson<T>(
       });
     }
 
+    writeSubmitDebugLog({
+      event: "api_request_success",
+      data: {
+        path,
+        url,
+        status: response.status,
+      },
+    });
+
     return json;
   } catch (error) {
     if (error instanceof ApiClientError) {
+      writeSubmitDebugLog({
+        event: "api_client_error",
+        level: "warn",
+        data: {
+          path,
+          url,
+          kind: error.kind,
+          status: error.status ?? null,
+          message: error.message,
+        },
+      });
+
       throw error;
     }
 
@@ -214,8 +271,29 @@ async function requestJson<T>(
       const isTimeout = !isUserAbort;
 
       if (isTimeout && retryCount > 0) {
+        writeSubmitDebugLog({
+          event: "api_retry_timeout",
+          level: "warn",
+          data: {
+            path,
+            url,
+            remainingRetry: retryCount,
+          },
+        });
+
         return requestJson<T>(path, init, options, retryCount - 1);
       }
+
+      writeSubmitDebugLog({
+        event: "api_abort",
+        level: "warn",
+        data: {
+          path,
+          url,
+          isUserAbort,
+          isTimeout,
+        },
+      });
 
       throw new ApiClientError({
         message: isUserAbort ? "Request cancelled by user" : "Request timed out",
@@ -224,11 +302,49 @@ async function requestJson<T>(
     }
 
     if (error instanceof TypeError) {
+      if (retryCount > 0) {
+        writeSubmitDebugLog({
+          event: "api_retry_network",
+          level: "warn",
+          data: {
+            path,
+            url,
+            remainingRetry: retryCount,
+            name: error.name,
+            message: error.message,
+          },
+        });
+
+        return requestJson<T>(path, init, options, retryCount - 1);
+      }
+
+      writeSubmitDebugLog({
+        event: "api_type_error",
+        level: "error",
+        data: {
+          path,
+          url,
+          name: error.name,
+          message: error.message,
+        },
+      });
+
       throw new ApiClientError({
         message: "Network/CORS error while contacting backend",
         kind: "network",
       });
     }
+
+    writeSubmitDebugLog({
+      event: "api_unknown_error",
+      level: "error",
+      data: {
+        path,
+        url,
+        name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : "unknown",
+      },
+    });
 
     throw new ApiClientError({
       message: error instanceof Error ? error.message : "Unknown network error",
@@ -371,7 +487,7 @@ function parseQueryPayload(payload: unknown): ParsedQueryPayload {
   const record = payload as PartialQueryResponse;
   const recordLike = payload as Record<string, unknown>;
 
-  const normalizedAnswer = firstString(recordLike, [
+  let normalizedAnswer = firstString(recordLike, [
     "answer",
     "response",
     "result",
@@ -389,20 +505,25 @@ function parseQueryPayload(payload: unknown): ParsedQueryPayload {
   const normalizedSources = normalizeSources(rawSources);
   const normalizedQueryTime = firstNumber(recordLike, ["query_time_ms", "latency_ms", "queryTimeMs"]);
 
-  const answerValid = typeof normalizedAnswer === "string";
+  if (!normalizedAnswer && normalizedSources.length > 0) {
+    normalizedAnswer = "Model returned no textual answer for this request. Please review the retrieved sources below or retry.";
+  }
+
+  const normalizedAnswerSafe = normalizedAnswer ?? "";
+  const answerValid = normalizedAnswerSafe.length > 0;
   const sourcesValid = Array.isArray(normalizedSources) && normalizedSources.every((item) => isSourceItem(item));
   const queryTimeValid = typeof normalizedQueryTime === "number";
 
   if (answerValid && sourcesValid && queryTimeValid) {
     return {
       full: {
-        answer: normalizedAnswer,
+        answer: normalizedAnswerSafe,
         sources: normalizedSources,
         query_time_ms: normalizedQueryTime,
       },
       partial: {
         ...record,
-        answer: normalizedAnswer,
+        answer: normalizedAnswerSafe,
         sources: normalizedSources,
         query_time_ms: normalizedQueryTime,
       },
@@ -426,7 +547,7 @@ function parseQueryPayload(payload: unknown): ParsedQueryPayload {
     full: null,
     partial: {
       ...record,
-      answer: normalizedAnswer,
+      answer: normalizedAnswerSafe,
       sources: normalizedSources,
       query_time_ms: normalizedQueryTime,
     },

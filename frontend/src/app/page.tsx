@@ -9,6 +9,7 @@ import { SourcesList } from "@/components/SourcesList";
 import { StatusBar } from "@/components/StatusBar";
 import { ApiClientError, getBackendHealth, queryNews } from "@/lib/api";
 import { addQueryToHistory } from "@/lib/session-history";
+import { writeSubmitDebugLog } from "@/lib/submit-debug-log";
 import { type SourceItem } from "@/lib/types";
 
 type PageState = "idle" | "loading" | "success" | "error" | "cancelled";
@@ -157,7 +158,7 @@ export default function Home() {
     }
 
     if (error.kind === "network") {
-      return "Network or CORS issue detected. Check backend URL and connectivity, then retry.";
+      return "Network connection to backend was interrupted. Please retry.";
     }
 
     if (error.kind === "parse") {
@@ -172,6 +173,10 @@ export default function Home() {
   }, []);
 
   const refreshStatus = useCallback(async () => {
+    if (isLoading) {
+      return;
+    }
+
     setIsCheckingStatus(true);
 
     try {
@@ -189,11 +194,11 @@ export default function Home() {
     } finally {
       setIsCheckingStatus(false);
     }
-  }, []);
+  }, [isLoading]);
 
   useEffect(() => {
     void refreshStatus();
-    const intervalId = window.setInterval(() => void refreshStatus(), 30000);
+    const intervalId = window.setInterval(() => void refreshStatus(), 45000);
 
     return () => {
       window.clearInterval(intervalId);
@@ -212,6 +217,14 @@ export default function Home() {
       return;
     }
 
+    writeSubmitDebugLog({
+      event: "submit_prompt_clicked",
+      data: {
+        questionLength: normalizedQuestion.length,
+        topK,
+      },
+    });
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -227,7 +240,7 @@ export default function Home() {
         },
         {
           signal: controller.signal,
-          timeoutMs: 15000,
+          timeoutMs: 120000,
         },
       );
 
@@ -241,13 +254,34 @@ export default function Home() {
         warning: payload.warning,
       });
 
+      writeSubmitDebugLog({
+        event: "submit_prompt_success",
+        data: {
+          answerLength: answerText.length,
+          sourceCount: sourceItems.length,
+          hasWarning: Boolean(payload.warning),
+        },
+      });
+
     } catch (error) {
       if (error instanceof ApiClientError && error.kind === "aborted") {
         dispatch({ type: "submit_cancelled" });
+        writeSubmitDebugLog({
+          event: "submit_prompt_cancelled",
+          level: "warn",
+        });
         return;
       }
 
       dispatch({ type: "submit_error", message: resolveUserMessage(error) });
+      writeSubmitDebugLog({
+        event: "submit_prompt_failed",
+        level: "error",
+        data: {
+          kind: error instanceof ApiClientError ? error.kind : "unknown",
+          message: error instanceof Error ? error.message : "unknown",
+        },
+      });
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
