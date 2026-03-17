@@ -7,10 +7,10 @@ import { ErrorToast } from "@/components/ErrorToast";
 import { QueryInput } from "@/components/QueryInput";
 import { SourcesList } from "@/components/SourcesList";
 import { StatusBar } from "@/components/StatusBar";
-import { ApiClientError, getBackendHealth, queryNews } from "@/lib/api";
+import { ApiClientError, getBackendHealth, queryNewsRealtime } from "@/lib/api";
 import { addQueryToHistory } from "@/lib/session-history";
 import { writeSubmitDebugLog } from "@/lib/submit-debug-log";
-import { type SourceItem } from "@/lib/types";
+import { type QueryStage, type SourceItem } from "@/lib/types";
 
 type PageState = "idle" | "loading" | "success" | "error" | "cancelled";
 type ServiceStatus = "online" | "degraded" | "offline" | "unknown";
@@ -19,6 +19,7 @@ interface QueryViewState {
   status: PageState;
   answer: string;
   sources: SourceItem[];
+  streamStage: QueryStage;
   warning?: string;
   errorMessage: string;
   showErrorToast: boolean;
@@ -26,6 +27,10 @@ interface QueryViewState {
 
 type QueryAction =
   | { type: "submit_start" }
+  | { type: "stream_status"; stage: QueryStage; message?: string }
+  | { type: "stream_token"; answer: string }
+  | { type: "stream_sources"; sources: SourceItem[] }
+  | { type: "stream_warning"; warning: string }
   | { type: "submit_success"; answer: string; sources: SourceItem[]; warning?: string }
   | { type: "submit_error"; message: string }
   | { type: "submit_cancelled" }
@@ -35,6 +40,7 @@ const initialQueryViewState: QueryViewState = {
   status: "idle",
   answer: "",
   sources: [],
+  streamStage: "connected",
   warning: undefined,
   errorMessage: "",
   showErrorToast: false,
@@ -48,9 +54,30 @@ function queryReducer(state: QueryViewState, action: QueryAction): QueryViewStat
         status: "loading",
         answer: "",
         sources: [],
+        streamStage: "query_started",
         warning: undefined,
         errorMessage: "",
         showErrorToast: false,
+      };
+    case "stream_status":
+      return {
+        ...state,
+        streamStage: action.stage,
+      };
+    case "stream_token":
+      return {
+        ...state,
+        answer: action.answer,
+      };
+    case "stream_sources":
+      return {
+        ...state,
+        sources: action.sources,
+      };
+    case "stream_warning":
+      return {
+        ...state,
+        warning: action.warning,
       };
     case "submit_success":
       return {
@@ -58,6 +85,7 @@ function queryReducer(state: QueryViewState, action: QueryAction): QueryViewStat
         status: "success",
         answer: action.answer,
         sources: action.sources,
+        streamStage: "completed",
         warning: action.warning,
         errorMessage: "",
         showErrorToast: false,
@@ -66,6 +94,7 @@ function queryReducer(state: QueryViewState, action: QueryAction): QueryViewStat
       return {
         ...state,
         status: "error",
+        streamStage: "completed",
         errorMessage: action.message,
         showErrorToast: true,
       };
@@ -73,6 +102,7 @@ function queryReducer(state: QueryViewState, action: QueryAction): QueryViewStat
       return {
         ...state,
         status: "cancelled",
+        streamStage: "completed",
         showErrorToast: false,
       };
     case "dismiss_toast":
@@ -233,10 +263,48 @@ export default function Home() {
     dispatch({ type: "submit_start" });
 
     try {
-      const payload = await queryNews(
+      const payload = await queryNewsRealtime(
         {
           question: normalizedQuestion,
           top_k: topK,
+        },
+        {
+          onStatus: (event) => {
+            dispatch({ type: "stream_status", stage: event.stage, message: event.message });
+            writeSubmitDebugLog({
+              event: "submit_stream_status",
+              data: {
+                stage: event.stage,
+                message: event.message,
+              },
+            });
+          },
+          onToken: (_event, aggregatedAnswer) => {
+            dispatch({ type: "stream_token", answer: aggregatedAnswer });
+          },
+          onSources: (sources) => {
+            dispatch({ type: "stream_sources", sources });
+          },
+          onWarning: (event) => {
+            dispatch({ type: "stream_warning", warning: event.message });
+            writeSubmitDebugLog({
+              event: "submit_stream_warning",
+              level: "warn",
+              data: {
+                message: event.message,
+              },
+            });
+          },
+          onError: (event) => {
+            writeSubmitDebugLog({
+              event: "submit_stream_error",
+              level: "error",
+              data: {
+                message: event.message,
+                recoverable: event.recoverable ?? null,
+              },
+            });
+          },
         },
         {
           signal: controller.signal,
@@ -320,6 +388,8 @@ export default function Home() {
         <StatusBar
           backend={backendStatus}
           ollama={ollamaStatus}
+          queryStage={isLoading ? queryState.streamStage : undefined}
+          realtimeWarning={isLoading ? queryState.warning : undefined}
           isRefreshing={isCheckingStatus}
           lastCheckedAt={lastCheckedAt}
         />

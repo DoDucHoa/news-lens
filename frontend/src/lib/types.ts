@@ -53,6 +53,71 @@ export interface ApiRequestOptions {
   signal?: AbortSignal;
 }
 
+export type QueryStage =
+  | "connected"
+  | "query_started"
+  | "embedding"
+  | "retrieval"
+  | "generation"
+  | "completed"
+  | string;
+
+export interface QueryStreamStatusEvent {
+  type: "status";
+  stage: QueryStage;
+  message: string;
+  timestamp?: string;
+}
+
+export interface QueryStreamTokenEvent {
+  type: "token";
+  token: string;
+  timestamp?: string;
+}
+
+export interface QueryStreamSourcesEvent {
+  type: "sources";
+  sources: unknown;
+  timestamp?: string;
+}
+
+export interface QueryStreamWarningEvent {
+  type: "warning";
+  message: string;
+  timestamp?: string;
+}
+
+export interface QueryStreamErrorEvent {
+  type: "error";
+  message: string;
+  recoverable?: boolean;
+  timestamp?: string;
+}
+
+export interface QueryStreamCompleteEvent {
+  type: "complete";
+  answer?: string;
+  sources?: unknown;
+  query_time_ms?: number;
+  timestamp?: string;
+}
+
+export type QueryStreamServerEvent =
+  | QueryStreamStatusEvent
+  | QueryStreamTokenEvent
+  | QueryStreamSourcesEvent
+  | QueryStreamWarningEvent
+  | QueryStreamErrorEvent
+  | QueryStreamCompleteEvent;
+
+export interface QueryStreamHandlers {
+  onStatus?: (event: QueryStreamStatusEvent) => void;
+  onToken?: (event: QueryStreamTokenEvent, aggregatedAnswer: string) => void;
+  onSources?: (sources: SourceItem[]) => void;
+  onWarning?: (event: QueryStreamWarningEvent) => void;
+  onError?: (event: QueryStreamErrorEvent) => void;
+}
+
 export interface ParsedQueryPayload {
   full: QueryResponse | null;
   partial: PartialQueryResponse | null;

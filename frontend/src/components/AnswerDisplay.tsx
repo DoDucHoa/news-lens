@@ -48,7 +48,14 @@ export function AnswerDisplay({ answer, isLoading, warning, isEmptyRetrieval }: 
         <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">{warning}</div>
       ) : null}
 
-      {isLoading ? (
+      {isLoading && normalizedAnswer ? (
+        <article className="prose prose-zinc max-w-none text-sm leading-7" aria-live="polite" aria-busy="true">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizedAnswer}</ReactMarkdown>
+          <p className="mt-3 text-xs text-zinc-500">Streaming response...</p>
+        </article>
+      ) : null}
+
+      {isLoading && !normalizedAnswer ? (
         <div className="space-y-2" aria-live="polite" aria-busy="true">
           <div className="h-4 w-full animate-pulse rounded bg-zinc-200" />
           <div className="h-4 w-11/12 animate-pulse rounded bg-zinc-200" />

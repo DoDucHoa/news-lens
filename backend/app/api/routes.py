@@ -1,7 +1,7 @@
 """
 API Routes
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Dict, Any
 import time
 
@@ -28,6 +28,11 @@ rag_service = RAGService(
     temperature=settings.RAG_TEMPERATURE,
     max_tokens=settings.RAG_MAX_TOKENS
 )
+
+
+def _now_iso8601_utc() -> str:
+    """Create UTC timestamp without microseconds for event payloads."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 
@@ -125,6 +130,114 @@ async def query_news(request: QueryRequest) -> QueryResponse:
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@router.websocket("/ws/query")
+async def query_news_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for realtime RAG query streaming.
+
+    Event protocol:
+    - Client -> Server: {"type":"query","question":"...","top_k":5}
+    - Server -> Client: status | token | sources | warning | error | complete
+    """
+    await websocket.accept()
+
+    await websocket.send_json(
+        {
+            "type": "status",
+            "stage": "connected",
+            "message": "WebSocket connection established",
+            "timestamp": _now_iso8601_utc(),
+        }
+    )
+
+    try:
+        while True:
+            payload = await websocket.receive_json()
+            request_type = payload.get("type")
+
+            if request_type != "query":
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Unsupported message type. Expected 'query'.",
+                        "recoverable": True,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
+                continue
+
+            question = payload.get("question", "")
+            top_k = payload.get("top_k")
+
+            if not isinstance(question, str) or not question.strip():
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Field 'question' is required and must be a non-empty string.",
+                        "recoverable": True,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
+                continue
+
+            if top_k is not None:
+                if not isinstance(top_k, int) or top_k < 1 or top_k > 20:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Field 'top_k' must be an integer between 1 and 20.",
+                            "recoverable": True,
+                            "timestamp": _now_iso8601_utc(),
+                        }
+                    )
+                    continue
+
+            started_at = time.time()
+
+            await websocket.send_json(
+                {
+                    "type": "status",
+                    "stage": "query_started",
+                    "message": "Processing query",
+                    "timestamp": _now_iso8601_utc(),
+                }
+            )
+
+            try:
+                for event in rag_service.query_stream(question=question.strip(), top_k=top_k):
+                    event_with_ts = {**event, "timestamp": _now_iso8601_utc()}
+
+                    if event.get("type") == "complete":
+                        event_with_ts["query_time_ms"] = int((time.time() - started_at) * 1000)
+
+                    await websocket.send_json(event_with_ts)
+
+            except Exception as e:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"Realtime query failed: {str(e)}",
+                        "recoverable": False,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
+
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        try:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"WebSocket error: {str(e)}",
+                    "recoverable": False,
+                    "timestamp": _now_iso8601_utc(),
+                }
+            )
+        except Exception:
+            return
 
 
 @router.get("/test", tags=["Test"])

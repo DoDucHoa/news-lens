@@ -12,7 +12,7 @@ export function SourcesList({ sources, isLoading }: SourcesListProps) {
     <section className="news-card fade-up p-5 lg:p-6">
       <h2 className="section-title mb-3">Sources</h2>
 
-      {isLoading ? (
+      {isLoading && sources.length === 0 ? (
         <div className="space-y-2" aria-live="polite" aria-busy="true">
           <div className="h-4 w-full animate-pulse rounded bg-zinc-200" />
           <div className="h-4 w-5/6 animate-pulse rounded bg-zinc-200" />
@@ -24,7 +24,7 @@ export function SourcesList({ sources, isLoading }: SourcesListProps) {
         <p className="text-sm text-zinc-600">No sources available for this answer yet.</p>
       ) : null}
 
-      {!isLoading && sources.length > 0 ? (
+      {sources.length > 0 ? (
         <ul className="space-y-2 text-sm">
           {sources.map((source, index) => (
             <li key={`${source.url}-${index}`} className="rounded-md border border-zinc-200 bg-zinc-50/80 px-3 py-2">
