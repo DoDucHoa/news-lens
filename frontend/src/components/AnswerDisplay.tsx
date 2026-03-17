@@ -31,9 +31,9 @@ export function AnswerDisplay({ answer, isLoading, warning, isEmptyRetrieval }: 
   };
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <section className="news-card fade-up p-5 lg:p-6">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-zinc-900">Answer</h2>
+        <h2 className="section-title">Answer</h2>
         <button
           type="button"
           onClick={handleCopy}
