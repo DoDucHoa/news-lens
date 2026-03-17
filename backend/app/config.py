@@ -3,7 +3,7 @@ Application Configuration
 """
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
-from typing import List, Union
+from typing import ClassVar, List, Union
 
 
 class Settings(BaseSettings):
@@ -28,15 +28,38 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
+
+    DEFAULT_LOCAL_CORS_ORIGINS: ClassVar[List[str]] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://0.0.0.0:3000",
+        "http://0.0.0.0:3001",
+    ]
     
     @field_validator('CORS_ORIGINS', mode='before')
     @classmethod
     def parse_cors_origins(cls, v):
         """Parse CORS_ORIGINS from comma-separated string or list"""
+        if v == "*":
+            return ["*"]
+
         if isinstance(v, str):
             # Split by comma and strip whitespace
-            return [origin.strip() for origin in v.split(',') if origin.strip()]
-        return v
+            parsed = [origin.strip() for origin in v.split(',') if origin.strip()]
+        else:
+            parsed = list(v)
+
+        if "*" in parsed:
+            return ["*"]
+
+        merged: List[str] = []
+        for origin in [*parsed, *cls.DEFAULT_LOCAL_CORS_ORIGINS]:
+            if origin and origin not in merged:
+                merged.append(origin)
+
+        return merged
     
     # API Configuration
     API_TITLE: str = "News Lens API"
