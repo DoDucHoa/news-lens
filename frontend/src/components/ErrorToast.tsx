@@ -23,7 +23,7 @@ export function ErrorToast({ message, visible, onClose }: ErrorToastProps) {
   }
 
   return (
-    <div className="fixed right-4 top-4 z-50 max-w-sm rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 shadow-lg" role="alert" aria-live="assertive">
+    <div className="fixed right-4 top-4 z-50 max-w-sm rounded-lg border border-rose-300 bg-rose-50/95 px-4 py-3 shadow-[0_16px_34px_rgba(64,20,20,0.18)] backdrop-blur" role="alert" aria-live="assertive">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-rose-800">{message}</p>
         <button
