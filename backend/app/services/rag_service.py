@@ -6,7 +6,9 @@ Handles Retrieval-Augmented Generation using ChromaDB and Ollama.
 from collections.abc import Iterator
 from typing import List, Dict, Any
 import time
+import json
 import ollama
+import requests
 from app.services.chromadb_service import ChromaDBService
 from app.models.schemas import SourceItem
 
@@ -44,6 +46,7 @@ class RAGService:
         self.default_top_k = top_k
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.ollama_host = ollama_host.rstrip("/")
         
         # Initialize Ollama client
         self.client = ollama.Client(host=ollama_host)
@@ -67,6 +70,30 @@ class RAGService:
             print(f"⚠️  Warning: Could not verify Ollama models: {str(e)}")
         
         print(f"✓ RAG Service initialized with Ollama at {ollama_host}")
+
+    def _chat_no_thinking(self, messages: List[Dict[str, str]], stream: bool) -> requests.Response:
+        """
+        Call Ollama /api/chat directly with think=False to disable reasoning mode.
+        """
+        payload = {
+            "model": self.llm_model,
+            "messages": messages,
+            "think": False,
+            "stream": stream,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+            },
+        }
+
+        response = requests.post(
+            f"{self.ollama_host}/api/chat",
+            json=payload,
+            timeout=(10, 240),
+            stream=stream,
+        )
+        response.raise_for_status()
+        return response
 
     @staticmethod
     def _extract_chunk_text(chunk: Any) -> str:
@@ -178,42 +205,31 @@ Answer:"""
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
-                response = self.client.chat(
-                    model=self.llm_model,
+                response = self._chat_no_thinking(
                     messages=[
                         {
-                            'role': 'system',
-                            'content': system_prompt
+                            "role": "system",
+                            "content": system_prompt,
                         },
                         {
-                            'role': 'user',
-                            'content': user_prompt
-                        }
+                            "role": "user",
+                            "content": user_prompt,
+                        },
                     ],
-                    options={
-                        'temperature': self.temperature,
-                        'num_predict': self.max_tokens,
-                    },
-                    stream=False  # Explicitly disable streaming
+                    stream=False,
                 )
+                response_data = response.json()
             
                 # Debug logging
-                print(f"DEBUG: Ollama response type: {type(response)}")
-                print(f"DEBUG: Ollama response: {response}")
+                print(f"DEBUG: Ollama response type: {type(response_data)}")
+                print(f"DEBUG: Ollama response: {response_data}")
             
-                # Handle both dict and object responses
-                if hasattr(response, 'message'):
-                    content = response.message.content if response.message.content else ""
-                    answer = content.strip()
-                elif isinstance(response, dict):
-                    content = response.get('message', {}).get('content', '')
-                    answer = content.strip()
-                else:
-                    raise ValueError(f"Unexpected response type: {type(response)}")
+                content = response_data.get("message", {}).get("content", "")
+                answer = content.strip() if isinstance(content, str) else ""
             
-                # If answer is empty, it might be a streaming issue - check if we need to collect chunks
-                if not answer and hasattr(response, 'done') and response.done:
-                    print(f"WARNING: Empty answer despite done=True. Done reason: {response.done_reason if hasattr(response, 'done_reason') else 'unknown'}")
+                if not answer:
+                    done_reason = response_data.get("done_reason", "unknown")
+                    print(f"WARNING: Empty answer despite done=True. Done reason: {done_reason}")
 
                 if not answer:
                     raise ValueError("LLM returned empty content")
@@ -253,8 +269,7 @@ Answer:"""
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
-                stream = self.client.chat(
-                    model=self.llm_model,
+                response = self._chat_no_thinking(
                     messages=[
                         {
                             "role": "system",
@@ -265,15 +280,19 @@ Answer:"""
                             "content": user_prompt,
                         },
                     ],
-                    options={
-                        "temperature": self.temperature,
-                        "num_predict": self.max_tokens,
-                    },
                     stream=True,
                 )
 
                 yielded = False
-                for chunk in stream:
+                for raw_line in response.iter_lines(decode_unicode=True):
+                    if not raw_line:
+                        continue
+
+                    try:
+                        chunk = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+
                     token = self._extract_chunk_text(chunk)
                     if token:
                         yielded = True
