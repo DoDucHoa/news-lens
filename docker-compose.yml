@@ -66,8 +66,8 @@ services:
       # Ollama Configuration
       - OLLAMA_HOST=ollama
       - OLLAMA_PORT=11434
-      - OLLAMA_LLM_MODEL=qwen3.5:4b
-      - OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+      - OLLAMA_LLM_MODEL=${OLLAMA_LLM_MODEL:-qwen3.5:4b}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-mxbai-embed-large}
       # RAG Configuration
       - RAG_TOP_K=${RAG_TOP_K:-5}
       - RAG_TEMPERATURE=${RAG_TEMPERATURE:-0.7}
