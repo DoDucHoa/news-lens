@@ -2,10 +2,11 @@ services:
   frontend:
     environment:
       - NODE_ENV=production
-      # In production, browser calls backend through reverse proxy path.
-      - NEXT_PUBLIC_API_MODE=proxy
-      - NEXT_PUBLIC_API_PROXY_PATH=/api
-      - INTERNAL_API_URL=http://backend:8000
+      # Direct connection mode for GCP (no reverse proxy)
+      - NEXT_PUBLIC_API_MODE=direct
+      - NEXT_PUBLIC_API_URL=http://${GCP_EXTERNAL_IP:-localhost}:8001
+    ports:
+      - "3001:3000"  # Expose on 3001 for production
     command: sh -c "npm run build && npm run start -- --hostname 0.0.0.0 --port 3000"
     # Disable source bind mounts and dev caches in production runtime.
     volumes: []
