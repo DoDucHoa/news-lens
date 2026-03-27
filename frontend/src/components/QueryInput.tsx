@@ -53,7 +53,7 @@ export function QueryInput({
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-2">
           <label htmlFor="top-k" className="subtle-label">
-            top_k
+            Number of top documents to retrieve
           </label>
           <input
             id="top-k"
