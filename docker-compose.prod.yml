@@ -1,4 +1,10 @@
 services:
+  ollama:
+    environment:
+      # Force CPU-only execution for production deployments (e.g., GCP CPU VMs).
+      - CUDA_VISIBLE_DEVICES=-1
+      - NVIDIA_VISIBLE_DEVICES=none
+
   frontend:
     environment:
       - NODE_ENV=production

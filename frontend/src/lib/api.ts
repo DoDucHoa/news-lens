@@ -96,6 +96,11 @@ function resolveBrowserDirectApiBaseUrl(): string {
     return configuredDirect;
   }
 
+  if (isLocalHostName(window.location.hostname)) {
+    // Keep localhost/127.0.0.1 development behavior exactly as configured.
+    return configuredDirect;
+  }
+
   const protocol = window.location.protocol === "https:" ? "https" : "http";
   const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT ?? "8001";
   return `${protocol}://${window.location.hostname}:${backendPort}`;
@@ -353,6 +358,42 @@ async function requestJson<T>(
       });
 
       throw error;
+    }
+
+    const abortReason = typeof error === "string" ? error : undefined;
+    if (abortReason === "timeout" || abortReason === "aborted") {
+      const isUserAbort = abortReason === "aborted" || options.signal?.aborted === true;
+      const isTimeout = !isUserAbort;
+
+      if (isTimeout && retryCount > 0) {
+        writeSubmitDebugLog({
+          event: "api_retry_timeout",
+          level: "warn",
+          data: {
+            path,
+            url,
+            remainingRetry: retryCount,
+          },
+        });
+
+        return requestJson<T>(path, init, options, retryCount - 1);
+      }
+
+      writeSubmitDebugLog({
+        event: "api_abort",
+        level: "warn",
+        data: {
+          path,
+          url,
+          isUserAbort,
+          isTimeout,
+        },
+      });
+
+      throw new ApiClientError({
+        message: isUserAbort ? "Request cancelled by user" : "Request timed out",
+        kind: isUserAbort ? "aborted" : "timeout",
+      });
     }
 
     if (error instanceof DOMException && error.name === "AbortError") {
