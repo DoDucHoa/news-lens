@@ -13,7 +13,6 @@ Triggered: Automatically after extraction DAG completes
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.sensors.external_task import ExternalTaskSensor
 import logging
 import sys
 import os
@@ -44,7 +43,7 @@ dag = DAG(
     'news_transformation_dag',
     default_args=default_args,
     description='Transform raw articles and load into ChromaDB',
-    schedule_interval='0 1 * * *',  # Daily at 1 AM (after extraction completes)
+    schedule_interval=None,  # Triggered by extraction DAG after upload_to_gcs succeeds
     catchup=False,
     tags=['news', 'transformation', 'embeddings', 'chromadb'],
 )
@@ -307,20 +306,6 @@ def upsert_to_chromadb_task(**context):
 
 # Define tasks
 
-# Wait for extraction DAG to complete
-wait_for_extraction = ExternalTaskSensor(
-    task_id='wait_for_extraction',
-    external_dag_id='news_extraction_dag',
-    external_task_id='upload_to_gcs',
-    allowed_states=['success'],
-    failed_states=['failed', 'skipped'],
-    mode='poke',
-    timeout=3600,  # 1 hour timeout
-    poke_interval=60,  # Check every minute
-    execution_delta=timedelta(hours=0),  # Look for extraction DAG with same execution_date
-    dag=dag,
-)
-
 task_download_from_gcs = PythonOperator(
     task_id='download_from_gcs',
     python_callable=download_from_gcs_task,
@@ -350,5 +335,4 @@ task_upsert_to_chromadb = PythonOperator(
 )
 
 # Define task dependencies
-# wait_for_extraction >> task_download_from_gcs >> task_clean_and_chunk >> task_generate_embeddings >> task_upsert_to_chromadb
 task_download_from_gcs >> task_clean_and_chunk >> task_generate_embeddings >> task_upsert_to_chromadb

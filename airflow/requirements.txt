@@ -8,7 +8,7 @@ requests==2.31.0
 google-cloud-storage==2.14.0
 
 # Vector Database
-chromadb==0.4.22
+chromadb>=0.6.0
 
 # Ollama Client
 ollama==0.4.4

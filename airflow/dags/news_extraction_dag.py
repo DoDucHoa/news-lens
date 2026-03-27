@@ -12,6 +12,7 @@ Schedule: Daily at midnight (Berlin timezone)
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models import Variable
 import logging
 import sys
@@ -246,5 +247,13 @@ task_upload_to_gcs = PythonOperator(
     dag=dag,
 )
 
+task_trigger_transformation = TriggerDagRunOperator(
+    task_id='trigger_transformation_dag',
+    trigger_dag_id='news_transformation_dag',
+    wait_for_completion=False,
+    reset_dag_run=False,
+    dag=dag,
+)
+
 # Define task dependencies
-task_fetch_rss >> task_scrape_content >> task_upload_to_gcs
+task_fetch_rss >> task_scrape_content >> task_upload_to_gcs >> task_trigger_transformation
