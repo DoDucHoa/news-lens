@@ -19,13 +19,7 @@ services:
       - "11434:11434"
     networks:
       - news-lens-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # CPU-safe by default. For GPU hosts, apply docker-compose.gpu.yml override.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
