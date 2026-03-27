@@ -61,28 +61,72 @@ function normalizeBaseUrl(input: string): string {
   return input.endsWith("/") ? input.slice(0, -1) : input;
 }
 
-export function resolveApiBaseUrl(): string {
-  const mode = process.env.NEXT_PUBLIC_API_MODE ?? "hybrid";
-  const directUrl = normalizeBaseUrl(
+function isLocalHostName(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isLoopbackHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return isLocalHostName(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeProxyPath(input: string): string {
+  if (!input) {
+    return "/api";
+  }
+
+  const normalized = normalizeBaseUrl(input);
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function resolveBrowserDirectApiBaseUrl(): string {
+  const configuredDirect = normalizeBaseUrl(
     process.env.NEXT_PUBLIC_API_DIRECT_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001",
   );
-  const proxyPath = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_PROXY_PATH ?? "/api");
-
-  if (mode === "direct") {
-    return directUrl;
-  }
-
-  if (mode === "proxy") {
-    return proxyPath;
-  }
 
   if (typeof window === "undefined") {
-    return normalizeBaseUrl(process.env.INTERNAL_API_URL ?? directUrl);
+    return configuredDirect;
   }
 
-  const host = window.location.hostname;
-  const isLocal = host === "localhost" || host === "127.0.0.1";
-  return isLocal ? directUrl : proxyPath;
+  if (!isLoopbackHttpUrl(configuredDirect)) {
+    return configuredDirect;
+  }
+
+  const protocol = window.location.protocol === "https:" ? "https" : "http";
+  const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT ?? "8001";
+  return `${protocol}://${window.location.hostname}:${backendPort}`;
+}
+
+export function resolveApiBaseUrl(): string {
+  const mode = process.env.NEXT_PUBLIC_API_MODE ?? "hybrid";
+  const directUrl = resolveBrowserDirectApiBaseUrl();
+  const proxyPath = normalizeProxyPath(process.env.NEXT_PUBLIC_API_PROXY_PATH ?? "/api");
+
+  if (typeof window !== "undefined") {
+    const currentHostIsLocal = isLocalHostName(window.location.hostname);
+    const directPointsToLoopback = isLoopbackHttpUrl(directUrl);
+
+    if (mode === "direct") {
+      // Guardrail for misconfigured deployments where direct URL is localhost on a public host.
+      if (!currentHostIsLocal && directPointsToLoopback) {
+        return proxyPath;
+      }
+
+      return directUrl;
+    }
+
+    if (mode === "proxy") {
+      return proxyPath;
+    }
+
+    return currentHostIsLocal ? directUrl : proxyPath;
+  }
+
+  return normalizeBaseUrl(process.env.INTERNAL_API_URL ?? directUrl);
 }
 
 export function resolveRealtimeWebSocketUrl(): string {
@@ -91,11 +135,23 @@ export function resolveRealtimeWebSocketUrl(): string {
     return `${explicit}/ws/query`;
   }
 
+  const apiBase = resolveApiBaseUrl();
+
+  if (apiBase.startsWith("http://") || apiBase.startsWith("https://")) {
+    const wsBase = toWebSocketBaseUrl(apiBase);
+    return `${wsBase}/ws/query`;
+  }
+
+  if (typeof window !== "undefined") {
+    // Prefer direct WS host for reliability across runtimes where rewrite/proxy WS upgrades may not be enabled.
+    const directWsBase = toWebSocketBaseUrl(resolveBrowserDirectApiBaseUrl());
+    return `${directWsBase}/ws/query`;
+  }
+
   const directUrl = normalizeBaseUrl(
     process.env.NEXT_PUBLIC_API_DIRECT_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001",
   );
-  const wsBase = toWebSocketBaseUrl(directUrl);
-  return `${wsBase}/ws/query`;
+  return `${toWebSocketBaseUrl(directUrl)}/ws/query`;
 }
 
 function toUrl(path: string): string {
