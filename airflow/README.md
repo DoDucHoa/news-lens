@@ -111,6 +111,7 @@ RSS feeds are configured via Airflow Variables (`NEWS_RSS_FEEDS`).
 **Currently configured feeds:**
 - VNExpress (Vietnam): https://vnexpress.net/rss/the-gioi.rss
 - DW News (Germany): https://rss.dw.com/rdf/rss-en-top
+- VNExpress (Vietnam): https://vnexpress.net/rss/thoi-su.rss
 
 ### Environment Variables
 

@@ -68,7 +68,8 @@ def fetch_rss_task(**context):
         # Fallback to default feeds
         feed_urls = [
             "https://vnexpress.net/rss/the-gioi.rss",
-            "https://rss.dw.com/rdf/rss-en-top"
+            "https://rss.dw.com/rdf/rss-en-top",
+            "https://vnexpress.net/rss/thoi-su.rss"
         ]
         logger.info(f"Using default feeds: {feed_urls}")
     

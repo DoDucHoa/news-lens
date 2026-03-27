@@ -175,7 +175,8 @@ if __name__ == "__main__":
     # Test feeds
     test_feeds = [
         "https://vnexpress.net/rss/the-gioi.rss",
-        "https://rss.dw.com/rdf/rss-en-top"
+        "https://rss.dw.com/rdf/rss-en-top",
+        "https://vnexpress.net/rss/thoi-su.rss"
     ]
     
     articles = fetch_rss_feeds(test_feeds, hours=24)

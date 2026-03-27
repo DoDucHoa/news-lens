@@ -47,7 +47,7 @@ def main():
     # Define variables to set
     variables = {
         "NEWS_RSS_FEEDS": {
-            "value": "https://vnexpress.net/rss/the-gioi.rss,https://rss.dw.com/rdf/rss-en-top",
+            "value": "https://vnexpress.net/rss/the-gioi.rss,https://rss.dw.com/rdf/rss-en-top,https://vnexpress.net/rss/thoi-su.rss",
             "description": "Comma-separated list of RSS feed URLs to fetch news from"
         }
     }

@@ -28,7 +28,7 @@ echo ""
 echo "📋 Setting RSS Feed URLs..."
 # Set NEWS_RSS_FEEDS variable (comma-separated list of RSS feed URLs)
 airflow variables set NEWS_RSS_FEEDS \
-    "https://vnexpress.net/rss/the-gioi.rss,https://rss.dw.com/rdf/rss-en-top" \
+    "https://vnexpress.net/rss/the-gioi.rss,https://rss.dw.com/rdf/rss-en-top,https://vnexpress.net/rss/thoi-su.rss" \
     --description "Comma-separated list of RSS feed URLs to fetch news from"
 
 echo "✅ Set NEWS_RSS_FEEDS"
