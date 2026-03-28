@@ -418,6 +418,17 @@ export default function Home() {
           <p className="mt-2 max-w-3xl text-sm ink-muted">
             Ask questions about recent news and get concise answers with source links.
           </p>
+          <p className="mt-3 text-xs text-zinc-400">
+            Developed by{" "}
+            <a
+              href="https://www.linkedin.com/in/hoa-do-0440371b6/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-500 transition-colors hover:text-zinc-700"
+            >
+              Hoa Do
+            </a>
+          </p>
         </header>
 
         <StatusBar
