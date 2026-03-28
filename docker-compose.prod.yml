@@ -6,12 +6,22 @@ services:
       - NVIDIA_VISIBLE_DEVICES=none
 
   frontend:
+    build:
+      args:
+        - NEXT_PUBLIC_API_MODE=proxy
+        - NEXT_PUBLIC_API_PROXY_PATH=/api
+        - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-https://news-lens.info/api}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://news-lens.info}
+        - INTERNAL_API_URL=http://backend:8000
     environment:
       - NODE_ENV=production
       # In production, browser calls backend through reverse proxy path.
       - NEXT_PUBLIC_API_MODE=proxy
       - NEXT_PUBLIC_API_PROXY_PATH=/api
       - INTERNAL_API_URL=http://backend:8000
+      # WebSocket URL for realtime queries
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-https://news-lens.info/api}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://news-lens.info}
     command: sh -c "npm run build && npm run start -- --hostname 0.0.0.0 --port 3000"
     # Disable source bind mounts and dev caches in production runtime.
     volumes: []

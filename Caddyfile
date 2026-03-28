@@ -1,0 +1,63 @@
+news-lens.info, www.news-lens.info {
+    # Automatic HTTPS with Let's Encrypt
+    # Caddy handles SSL certificates automatically
+
+    # WebSocket endpoint for streaming RAG responses
+    handle /api/ws/* {
+        uri strip_prefix /api
+        reverse_proxy backend:8000 {
+            # WebSocket support
+            header_up Upgrade {http.request.header.Upgrade}
+            header_up Connection {http.request.header.Connection}
+            header_up Host {http.request.host}
+            header_up X-Real-IP {http.request.remote.host}
+            header_up X-Forwarded-For {http.request.remote.host}
+            header_up X-Forwarded-Proto {http.request.scheme}
+        }
+    }
+
+    # Backend API - FastAPI
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy backend:8000 {
+            # WebSocket support for all API endpoints
+            header_up Upgrade {http.request.header.Upgrade}
+            header_up Connection {http.request.header.Connection}
+        }
+    }
+
+    # Airflow Web UI (optional)
+    handle /airflow/* {
+        uri strip_prefix /airflow
+        reverse_proxy airflow-webserver:8080
+    }
+
+    # Health check
+    handle /health {
+        respond "healthy" 200
+    }
+
+    # Frontend - Next.js (must be last - catches all remaining)
+    handle /* {
+        reverse_proxy frontend:3000
+    }
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        -Server
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+
+    # Request size limit
+    request_body {
+        max_size 100MB
+    }
+}

@@ -90,6 +90,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_MODE=hybrid
+        - NEXT_PUBLIC_API_DIRECT_URL=http://localhost:${BACKEND_PORT:-8001}
+        - NEXT_PUBLIC_API_PROXY_PATH=/api
     container_name: news-lens-frontend
     restart: always
     depends_on:
