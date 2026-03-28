@@ -13,7 +13,7 @@ It solves news overload by automatically ingesting RSS content, storing raw data
 - Runs as a multi-service Docker stack suitable for portfolio demonstration
 
 ## Architecture Overview
-
+![System Architecture Sequence](documents/System%20Architecture%20Sequence.png)
 Core components:
 
 - Airflow: scheduled extraction and transformation pipelines
@@ -30,6 +30,41 @@ High-level flow:
 3. Transformation DAG downloads raw data, cleans/chunks text, generates embeddings, and upserts into ChromaDB.
 4. Backend receives user queries, retrieves top-k chunks, and generates an answer via Ollama.
 5. Frontend calls backend APIs and displays answers with sources.
+
+Mermaid high-level system sequence:
+
+- `docs/diagrams/system-architecture-sequence.mmd`
+
+
+## Main Flow
+
+This flow describes how a user question travels from the frontend to retrieval and generation, then streams back to the UI.
+
+![Prompt Submission Flow](documents/Prompt%20Submission%20Flow.png)
+
+### 1) Input Validation (Frontend)
+
+1. User enters a prompt and clicks submit.
+2. Frontend validates the input before calling backend services.
+3. If the prompt is empty or invalid, the UI shows a validation message and stops the request.
+
+### 2) Retrieval + Generation (Backend RAG Path)
+
+1. For valid prompts, frontend opens a WebSocket request to `/ws/query`.
+2. Backend generates a query embedding via Ollama embedding model.
+3. Backend sends that vector to ChromaDB to retrieve top-k relevant chunks.
+4. ChromaDB returns context chunks and source metadata.
+5. Backend calls Ollama LLM with retrieved context to generate a grounded answer.
+
+### 3) Streaming Response (User Experience)
+
+1. Backend streams progress events, partial answer text, and sources back to frontend.
+2. Frontend renders the answer with source citations as data arrives.
+
+### 4) Failure Handling
+
+1. If a runtime failure occurs (embedding service, vector DB, or LLM), backend returns an error event/response.
+2. Frontend surfaces retry guidance so users can resubmit safely.
 
 ## Project Structure
 
