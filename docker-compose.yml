@@ -43,7 +43,7 @@ services:
     # NOTE: Port 8000 is NOT exposed to host (security best practice)
     # Other services access via internal DNS: chromadb:8000
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8000/api/v2"]
+      test: ["CMD-SHELL", "grep -q ':1F40 ' /proc/net/tcp /proc/net/tcp6"]
       interval: 30s
       timeout: 10s
       retries: 3
