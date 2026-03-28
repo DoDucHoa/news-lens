@@ -236,7 +236,7 @@ services:
 
 networks:
   news-lens-network:
-    driver: bridge
+    external: true
 
 volumes:
   ollama-data:
