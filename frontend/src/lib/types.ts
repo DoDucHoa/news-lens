@@ -1,6 +1,7 @@
 export interface QueryRequest {
   question: string;
   top_k?: number;
+  llm_model?: "qwen3.5:0.8b" | "qwen3.5:2b" | "qwen3.5:4b";
 }
 
 export interface SourceItem {

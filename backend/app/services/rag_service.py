@@ -11,6 +11,7 @@ import ollama
 import requests
 from app.services.chromadb_service import ChromaDBService
 from app.models.schemas import SourceItem
+from app.config import settings
 
 
 class RAGService:
@@ -53,8 +54,7 @@ class RAGService:
         
         # Verify models are available
         try:
-            available_models = self.client.list()
-            model_names = [m['name'] for m in available_models.get('models', [])]
+            model_names = self._list_available_model_names()
             
             if llm_model not in model_names:
                 print(f"⚠️  Warning: LLM model '{llm_model}' not found in Ollama")
@@ -71,12 +71,70 @@ class RAGService:
         
         print(f"✓ RAG Service initialized with Ollama at {ollama_host}")
 
-    def _chat_no_thinking(self, messages: List[Dict[str, str]], stream: bool) -> requests.Response:
+    @staticmethod
+    def _extract_model_name(model_entry: Any) -> str | None:
+        """
+        Extract model name from Ollama list() entries across response formats.
+        """
+        if isinstance(model_entry, dict):
+            if isinstance(model_entry.get("name"), str):
+                return model_entry["name"]
+            if isinstance(model_entry.get("model"), str):
+                return model_entry["model"]
+            return None
+
+        entry_name = getattr(model_entry, "name", None)
+        if isinstance(entry_name, str):
+            return entry_name
+
+        entry_model = getattr(model_entry, "model", None)
+        if isinstance(entry_model, str):
+            return entry_model
+
+        return None
+
+    def _list_available_model_names(self) -> List[str]:
+        """
+        List available Ollama model names from client.list() safely.
+        """
+        available_models = self.client.list()
+        raw_models = available_models.get("models", [])
+        names: List[str] = []
+        for model_entry in raw_models:
+            extracted = self._extract_model_name(model_entry)
+            if extracted and extracted not in names:
+                names.append(extracted)
+        return names
+
+    def _resolve_llm_model_for_query(self, llm_model: str | None) -> str:
+        """
+        Resolve per-query model or fallback to default configured model.
+        """
+        resolved_model = llm_model if llm_model is not None else self.llm_model
+        if resolved_model not in settings.OLLAMA_ALLOWED_LLM_MODELS:
+            raise ValueError(
+                f"Unsupported llm_model '{resolved_model}'. "
+                f"Allowed models: {', '.join(settings.OLLAMA_ALLOWED_LLM_MODELS)}"
+            )
+        return resolved_model
+
+    def _ensure_model_available(self, llm_model: str) -> None:
+        """
+        Ensure selected model is available in Ollama runtime.
+        """
+        model_names = self._list_available_model_names()
+        if llm_model not in model_names:
+            raise ValueError(
+                f"Requested model '{llm_model}' is not available in Ollama. "
+                f"Pull it first (e.g., 'ollama pull {llm_model}') and retry."
+            )
+
+    def _chat_no_thinking(self, messages: List[Dict[str, str]], stream: bool, llm_model: str) -> requests.Response:
         """
         Call Ollama /api/chat directly with think=False to disable reasoning mode.
         """
         payload = {
-            "model": self.llm_model,
+            "model": llm_model,
             "messages": messages,
             "think": False,
             "stream": stream,
@@ -173,7 +231,7 @@ class RAGService:
 
         raise Exception(f"Embedding generation failed after retries: {str(last_error)}")
     
-    def _generate_answer(self, question: str, context: str) -> str:
+    def _generate_answer(self, question: str, context: str, llm_model: str) -> str:
         """
         Generate answer using Ollama LLM based on context
         
@@ -217,6 +275,7 @@ Answer:"""
                         },
                     ],
                     stream=False,
+                    llm_model=llm_model,
                 )
                 response_data = response.json()
             
@@ -251,7 +310,7 @@ Answer:"""
 
         raise Exception(f"Answer generation failed after retries: {str(last_error)}")
 
-    def _stream_answer(self, question: str, context: str) -> Iterator[str]:
+    def _stream_answer(self, question: str, context: str, llm_model: str) -> Iterator[str]:
         """
         Generate answer in streaming mode and yield token chunks.
         """
@@ -281,6 +340,7 @@ Answer:"""
                         },
                     ],
                     stream=True,
+                    llm_model=llm_model,
                 )
 
                 yielded = False
@@ -352,11 +412,13 @@ Answer:"""
 
         return "\n\n".join(context_parts), sources
 
-    def query_stream(self, question: str, top_k: int = None) -> Iterator[Dict[str, Any]]:
+    def query_stream(self, question: str, top_k: int = None, llm_model: str | None = None) -> Iterator[Dict[str, Any]]:
         """
         Perform a streaming RAG query and yield structured events.
         """
         resolved_top_k = top_k if top_k is not None else self.default_top_k
+        resolved_llm_model = self._resolve_llm_model_for_query(llm_model)
+        self._ensure_model_available(resolved_llm_model)
 
         yield {
             "type": "status",
@@ -399,11 +461,12 @@ Answer:"""
             "type": "status",
             "stage": "generation",
             "message": "Generating answer from retrieved context",
+            "llm_model": resolved_llm_model,
         }
 
         answer_parts: List[str] = []
         try:
-            for token in self._stream_answer(question, context):
+            for token in self._stream_answer(question, context, resolved_llm_model):
                 answer_parts.append(token)
                 yield {
                     "type": "token",
@@ -427,7 +490,7 @@ Answer:"""
             "sources": [source.model_dump() for source in sources],
         }
     
-    def query(self, question: str, top_k: int = None) -> Dict[str, Any]:
+    def query(self, question: str, top_k: int = None, llm_model: str | None = None) -> Dict[str, Any]:
         """
         Perform RAG query: embed question, retrieve relevant docs, generate answer
         
@@ -440,6 +503,8 @@ Answer:"""
         """
         if top_k is None:
             top_k = self.default_top_k
+        resolved_llm_model = self._resolve_llm_model_for_query(llm_model)
+        self._ensure_model_available(resolved_llm_model)
 
         context, sources = self._retrieve_context_and_sources(question, top_k)
 
@@ -451,7 +516,7 @@ Answer:"""
 
         # Step 5: Generate answer using Ollama LLM
         try:
-            answer = self._generate_answer(question, context)
+            answer = self._generate_answer(question, context, resolved_llm_model)
         except Exception as e:
             print(f"WARNING: Falling back after generation failure: {str(e)}")
             answer = self._build_fallback_answer(question, sources)

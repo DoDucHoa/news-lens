@@ -8,6 +8,12 @@ import { QueryInput } from "@/components/QueryInput";
 import { SourcesList } from "@/components/SourcesList";
 import { StatusBar } from "@/components/StatusBar";
 import { ApiClientError, getBackendHealth, queryNewsRealtime } from "@/lib/api";
+import {
+  DEFAULT_LLM_MODEL,
+  isAllowedLlmModel,
+  SELECTED_MODEL_STORAGE_KEY,
+  type LlmModel,
+} from "@/lib/models";
 import { addQueryToHistory } from "@/lib/session-history";
 import { writeSubmitDebugLog } from "@/lib/submit-debug-log";
 import { type QueryStage, type SourceItem } from "@/lib/types";
@@ -155,6 +161,7 @@ function readFallbackSources(value: unknown): SourceItem[] {
 export default function Home() {
   const [question, setQuestion] = useState("");
   const [topK, setTopK] = useState(5);
+  const [selectedModel, setSelectedModel] = useState<LlmModel>(DEFAULT_LLM_MODEL);
   const [queryState, dispatch] = useReducer(queryReducer, initialQueryViewState);
   const [backendStatus, setBackendStatus] = useState<ServiceStatus>("unknown");
   const [ollamaStatus, setOllamaStatus] = useState<ServiceStatus>("unknown");
@@ -177,6 +184,13 @@ export default function Home() {
   const resolveUserMessage = useCallback((error: unknown): string => {
     if (!(error instanceof ApiClientError)) {
       return "Unexpected failure happened. Please try again.";
+    }
+
+    if (
+      error.kind === "client" &&
+      (error.message.includes("Requested model") || error.message.includes("Unsupported llm_model"))
+    ) {
+      return error.message;
     }
 
     if (error.kind === "timeout") {
@@ -241,6 +255,25 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.localStorage === "undefined") {
+      return;
+    }
+
+    const savedModel = window.localStorage.getItem(SELECTED_MODEL_STORAGE_KEY);
+    if (isAllowedLlmModel(savedModel)) {
+      setSelectedModel(savedModel);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.localStorage === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, selectedModel);
+  }, [selectedModel]);
+
   const submitQuery = useCallback(async () => {
     const normalizedQuestion = question.trim();
     if (!normalizedQuestion || isLoading) {
@@ -252,6 +285,7 @@ export default function Home() {
       data: {
         questionLength: normalizedQuestion.length,
         topK,
+        selectedModel,
       },
     });
 
@@ -267,6 +301,7 @@ export default function Home() {
         {
           question: normalizedQuestion,
           top_k: topK,
+          llm_model: selectedModel,
         },
         {
           onStatus: (event) => {
@@ -355,7 +390,7 @@ export default function Home() {
         abortRef.current = null;
       }
     }
-  }, [isLoading, question, resolveUserMessage, topK]);
+  }, [isLoading, question, resolveUserMessage, selectedModel, topK]);
 
   const cancelQuery = useCallback(() => {
     abortRef.current?.abort();
@@ -397,9 +432,11 @@ export default function Home() {
         <QueryInput
           question={question}
           topK={topK}
+          selectedModel={selectedModel}
           isLoading={isLoading}
           onQuestionChange={setQuestion}
           onTopKChange={(value) => setTopK(Number.isFinite(value) && value >= 1 && value <= 20 ? value : 5)}
+          onModelChange={setSelectedModel}
           onSubmit={() => {
             void submitQuery();
           }}

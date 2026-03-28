@@ -2,7 +2,7 @@
 API Routes
 """
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import time
 
 from app.models.schemas import QueryRequest, QueryResponse, HealthResponse, StatsResponse
@@ -28,6 +28,20 @@ rag_service = RAGService(
     temperature=settings.RAG_TEMPERATURE,
     max_tokens=settings.RAG_MAX_TOKENS
 )
+
+
+def _resolve_requested_llm_model(requested_model: Optional[str]) -> str:
+    """Resolve and validate requested llm model against allowed backend models."""
+    if requested_model is None:
+        return settings.OLLAMA_LLM_MODEL
+
+    if requested_model not in settings.OLLAMA_ALLOWED_LLM_MODELS:
+        raise ValueError(
+            f"Unsupported llm_model '{requested_model}'. "
+            f"Allowed models: {', '.join(settings.OLLAMA_ALLOWED_LLM_MODELS)}"
+        )
+
+    return requested_model
 
 
 def _now_iso8601_utc() -> str:
@@ -113,11 +127,13 @@ async def query_news(request: QueryRequest) -> QueryResponse:
     try:
         # Use custom top_k if provided, otherwise use default
         top_k = request.top_k or settings.RAG_TOP_K
+        resolved_llm_model = _resolve_requested_llm_model(request.llm_model)
         
         # Perform RAG query
         result = rag_service.query(
             question=request.question,
-            top_k=top_k
+            top_k=top_k,
+            llm_model=resolved_llm_model,
         )
         
         query_time_ms = int((time.time() - start_time) * 1000)
@@ -128,6 +144,8 @@ async def query_news(request: QueryRequest) -> QueryResponse:
             query_time_ms=query_time_ms
         )
     
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
@@ -138,7 +156,7 @@ async def query_news_websocket(websocket: WebSocket):
     WebSocket endpoint for realtime RAG query streaming.
 
     Event protocol:
-    - Client -> Server: {"type":"query","question":"...","top_k":5}
+    - Client -> Server: {"type":"query","question":"...","top_k":5,"llm_model":"qwen3.5:4b"}
     - Server -> Client: status | token | sources | warning | error | complete
     """
     await websocket.accept()
@@ -170,6 +188,7 @@ async def query_news_websocket(websocket: WebSocket):
 
             question = payload.get("question", "")
             top_k = payload.get("top_k")
+            llm_model = payload.get("llm_model")
 
             if not isinstance(question, str) or not question.strip():
                 await websocket.send_json(
@@ -194,6 +213,30 @@ async def query_news_websocket(websocket: WebSocket):
                     )
                     continue
 
+            if llm_model is not None and not isinstance(llm_model, str):
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Field 'llm_model' must be a string when provided.",
+                        "recoverable": True,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
+                continue
+
+            try:
+                resolved_llm_model = _resolve_requested_llm_model(llm_model.strip() if isinstance(llm_model, str) else None)
+            except ValueError as e:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                        "recoverable": True,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
+                continue
+
             started_at = time.time()
 
             await websocket.send_json(
@@ -206,7 +249,11 @@ async def query_news_websocket(websocket: WebSocket):
             )
 
             try:
-                for event in rag_service.query_stream(question=question.strip(), top_k=top_k):
+                for event in rag_service.query_stream(
+                    question=question.strip(),
+                    top_k=top_k,
+                    llm_model=resolved_llm_model,
+                ):
                     event_with_ts = {**event, "timestamp": _now_iso8601_utc()}
 
                     if event.get("type") == "complete":
@@ -214,6 +261,15 @@ async def query_news_websocket(websocket: WebSocket):
 
                     await websocket.send_json(event_with_ts)
 
+            except ValueError as e:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                        "recoverable": True,
+                        "timestamp": _now_iso8601_utc(),
+                    }
+                )
             except Exception as e:
                 await websocket.send_json(
                     {

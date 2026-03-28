@@ -841,6 +841,7 @@ export async function queryNewsRealtime(
           type: "query",
           question: request.question,
           top_k: request.top_k,
+          llm_model: request.llm_model,
         }),
       );
     };

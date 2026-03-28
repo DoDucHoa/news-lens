@@ -52,7 +52,7 @@ news-lens/
 - Frontend: Next.js (React, TypeScript)
 - Vector DB: ChromaDB
 - Local AI runtime: Ollama
-- LLM model: `qwen3.5:4b`
+- LLM model: `qwen3.5:0.8b` (default)
 - Embedding model: `mxbai-embed-large`
 - Data Lake: Google Cloud Storage (required in standard setup)
 - Infrastructure: Docker Compose
@@ -91,6 +91,8 @@ docker-compose up -d --build
 ### 4) Pull Ollama Models (inside container)
 
 ```bash
+docker exec news-lens-ollama ollama pull qwen3.5:0.8b
+docker exec news-lens-ollama ollama pull qwen3.5:2b
 docker exec news-lens-ollama ollama pull qwen3.5:4b
 docker exec news-lens-ollama ollama pull mxbai-embed-large
 ```
@@ -124,12 +126,18 @@ npm run dev
 - `GET /stats` - collection statistics
 - `POST /query` - RAG query endpoint
 
+Query model selection:
+
+- Frontend dropdown supports: `qwen3.5:0.8b`, `qwen3.5:2b`, `qwen3.5:4b`
+- Selection is persisted in browser localStorage
+- Backend returns explicit errors for unsupported or unavailable selected models (no silent fallback)
+
 Example query:
 
 ```bash
 curl -X POST "http://localhost:8001/query" \
   -H "Content-Type: application/json" \
-  -d '{"question":"What are today\'s key world news themes?","top_k":5}'
+  -d '{"question":"What are today\'s key world news themes?","top_k":5,"llm_model":"qwen3.5:0.8b"}'
 ```
 
 ## ETL DAGs

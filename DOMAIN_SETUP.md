@@ -147,12 +147,12 @@ curl -I https://news-lens.info
 
 ## Service URLs After Setup
 
-| Service | URL |
-|---|---|
-| **Main Website** | https://news-lens.info |
-| **API** | https://news-lens.info/api/* |
-| **Airflow UI** | https://news-lens.info/airflow |
-| **Health Check** | https://news-lens.info/health |
+| Service          | URL                            |
+| ---------------- | ------------------------------ |
+| **Main Website** | https://news-lens.info         |
+| **API**          | https://news-lens.info/api/*   |
+| **Airflow UI**   | https://news-lens.info/airflow |
+| **Health Check** | https://news-lens.info/health  |
 
 ---
 

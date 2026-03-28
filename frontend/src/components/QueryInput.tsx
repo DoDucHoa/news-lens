@@ -1,13 +1,16 @@
 "use client";
 
 import { type FormEvent, type KeyboardEvent } from "react";
+import { ALLOWED_LLM_MODELS, type LlmModel } from "@/lib/models";
 
 interface QueryInputProps {
   question: string;
   topK: number;
+  selectedModel: LlmModel;
   isLoading: boolean;
   onQuestionChange: (value: string) => void;
   onTopKChange: (value: number) => void;
+  onModelChange: (value: LlmModel) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }
@@ -15,9 +18,11 @@ interface QueryInputProps {
 export function QueryInput({
   question,
   topK,
+  selectedModel,
   isLoading,
   onQuestionChange,
   onTopKChange,
+  onModelChange,
   onSubmit,
   onCancel,
 }: QueryInputProps) {
@@ -51,7 +56,31 @@ export function QueryInput({
       />
 
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="llm-model" className="subtle-label">
+              Model
+            </label>
+            <select
+              id="llm-model"
+              value={selectedModel}
+              disabled={isLoading}
+              onChange={(event) => {
+                const nextModel = event.target.value;
+                if (ALLOWED_LLM_MODELS.includes(nextModel as LlmModel)) {
+                  onModelChange(nextModel as LlmModel);
+                }
+              }}
+              className="control-field rounded-md px-2 py-1 text-sm text-zinc-900 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {ALLOWED_LLM_MODELS.map((modelName) => (
+                <option key={modelName} value={modelName}>
+                  {modelName}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <label htmlFor="top-k" className="subtle-label">
             Number of top documents to retrieve
           </label>

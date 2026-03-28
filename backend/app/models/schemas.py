@@ -23,6 +23,10 @@ class QueryRequest(BaseModel):
     """
     question: str = Field(..., description="User's question about the news", min_length=1)
     top_k: Optional[int] = Field(None, description="Number of sources to retrieve (default: 5)", ge=1, le=20)
+    llm_model: Optional[str] = Field(
+        None,
+        description="LLM model to use for this query. Allowed: qwen3.5:0.8b, qwen3.5:2b, qwen3.5:4b",
+    )
 
 
 class QueryResponse(BaseModel):

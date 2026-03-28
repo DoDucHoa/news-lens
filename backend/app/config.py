@@ -18,8 +18,13 @@ class Settings(BaseSettings):
     # Ollama Configuration (Local LLM with GPU)
     OLLAMA_HOST: str = "ollama"
     OLLAMA_PORT: int = 11434
-    OLLAMA_LLM_MODEL: str = "qwen3.5:4b"
+    OLLAMA_LLM_MODEL: str = "qwen3.5:0.8b"
     OLLAMA_EMBEDDING_MODEL: str = "mxbai-embed-large"
+    OLLAMA_ALLOWED_LLM_MODELS: ClassVar[List[str]] = [
+        "qwen3.5:0.8b",
+        "qwen3.5:2b",
+        "qwen3.5:4b",
+    ]
     
     # RAG Configuration
     RAG_TOP_K: int = 5
